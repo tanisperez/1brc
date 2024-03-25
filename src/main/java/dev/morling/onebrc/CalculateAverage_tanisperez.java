@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static java.nio.file.Files.newBufferedReader;
-import static java.util.stream.Collectors.groupingBy;
 
 public class CalculateAverage_tanisperez {
 
@@ -118,7 +117,7 @@ public class CalculateAverage_tanisperez {
 
         Runnable consumer = () -> {
             try {
-                while (!eof.get()) {
+                while (!queue.isEmpty() || !eof.get()) {
                     final String line = queue.take();
                     final Measurement measurement = Measurement.from(line);
 
@@ -133,25 +132,23 @@ public class CalculateAverage_tanisperez {
 
         try {
             executorsService.submit(producer);
-            for (int i = 0; i < 1; i++) {
+            for (int i = 0; i < numberOfCores; i++) {
                 executorsService.submit(consumer);
             }
             executorsService.shutdown();
-            executorsService.awaitTermination(10, TimeUnit.SECONDS);
+            executorsService.awaitTermination(100, TimeUnit.SECONDS);
         }
         catch (final Exception exception) {
             exception.printStackTrace();
         }
 
         Map<String, ResultRow> accumulatedResults = results.entrySet()
-            .stream()
-            .collect(Collectors.toMap(Map.Entry::getKey,
-                resultRow -> new ResultRow(
-                    resultRow.getValue().min,
-                    (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
-                    resultRow.getValue().max)
-                )
-            );
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        resultRow -> new ResultRow(
+                                resultRow.getValue().min,
+                                (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
+                                resultRow.getValue().max)));
 
         TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
         sortedResults.putAll(accumulatedResults);
