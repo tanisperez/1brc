@@ -38,22 +38,23 @@ public class CalculateAverage_tanisperez {
         }
 
         public static Measurement from(final String line) {
-            boolean readingValue = false;
-            final StringBuilder station = new StringBuilder(line.length());
-            final StringBuilder value = new StringBuilder(line.length());
-            for (int i = 0; i < line.length(); i++) {
-                final char character = line.charAt(i);
-                if (character == ';') {
-                    readingValue = true;
-                    continue;
-                }
-                if (readingValue) {
-                    value.append(character);
-                } else {
-                    station.append(character);
-                }
-            }
-            return new Measurement(station.toString(), Double.parseDouble(value.toString()));
+//            boolean readingValue = false;
+//            final StringBuilder station = new StringBuilder(line.length());
+//            final StringBuilder value = new StringBuilder(line.length());
+//            for (int i = 0; i < line.length(); i++) {
+//                final char character = line.charAt(i);
+//                if (character == ';') {
+//                    readingValue = true;
+//                    continue;
+//                }
+//                if (readingValue) {
+//                    value.append(character);
+//                } else {
+//                    station.append(character);
+//                }
+//            }
+            final String[] parts = line.split(";");
+            return new Measurement(parts[0], Double.parseDouble(parts[1]));
         }
     }
 
@@ -73,6 +74,21 @@ public class CalculateAverage_tanisperez {
         private double max = Double.NEGATIVE_INFINITY;
         private double sum;
         private long count;
+
+        public MeasurementAggregator(double sum) {
+            this.min = sum;
+            this.max = sum;
+            this.sum = sum;
+            this.count = 1;
+        }
+
+        MeasurementAggregator merge(MeasurementAggregator other) {
+            this.max = Math.max(other.max, this.max);
+            this.min = Math.min(other.min, this.min);
+            this.sum += other.sum;
+            this.count += other.count;
+            return this;
+        }
     }
 
     public static void main(String[] args) throws IOException {
@@ -106,21 +122,8 @@ public class CalculateAverage_tanisperez {
                     final String line = queue.take();
                     final Measurement measurement = Measurement.from(line);
 
-                    MeasurementAggregator measurementAggregator = new MeasurementAggregator();
-                    measurementAggregator.min = measurement.value;
-                    measurementAggregator.max = measurement.value;
-                    measurementAggregator.sum = measurement.value;
-                    measurementAggregator.count = 1;
-
-                    results.merge(measurement.station, measurementAggregator,
-                            (currentValue, newValue) -> {
-                                MeasurementAggregator newMeasurementAggregator = new MeasurementAggregator();
-                                newMeasurementAggregator.min = Math.min(currentValue.min, newValue.min);
-                                newMeasurementAggregator.max = Math.max(currentValue.max, newValue.max);
-                                newMeasurementAggregator.sum = currentValue.sum + newValue.sum;
-                                newMeasurementAggregator.count = currentValue.count + 1;
-                                return newMeasurementAggregator;
-                            });
+                    MeasurementAggregator measurementAggregator = new MeasurementAggregator(measurement.value);
+                    results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
                 }
             }
             catch (InterruptedException e) {
@@ -130,7 +133,7 @@ public class CalculateAverage_tanisperez {
 
         try {
             executorsService.submit(producer);
-            for (int i = 0; i < numberOfCores; i++) {
+            for (int i = 0; i < 1; i++) {
                 executorsService.submit(consumer);
             }
             executorsService.shutdown();
@@ -140,17 +143,19 @@ public class CalculateAverage_tanisperez {
             exception.printStackTrace();
         }
 
-        Map<String, ResultRow> copy = results.entrySet()
-                .stream()
-                .collect(Collectors.toMap(Map.Entry::getKey,
-                        e -> new ResultRow(e.getValue().min, (Math.round(e.getValue().sum * 10.0) / 10.0) / e.getValue().count, e.getValue().max))
-                );
+        Map<String, ResultRow> accumulatedResults = results.entrySet()
+            .stream()
+            .collect(Collectors.toMap(Map.Entry::getKey,
+                resultRow -> new ResultRow(
+                    resultRow.getValue().min,
+                    (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
+                    resultRow.getValue().max)
+                )
+            );
 
-        TreeMap<String, ResultRow> out = new TreeMap<>();
-        for (java.util.Map.Entry<String, ResultRow> result : copy.entrySet()) {
-            out.put(result.getKey(), result.getValue());
-        }
+        TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
+        sortedResults.putAll(accumulatedResults);
 
-        System.out.println(out);
+        System.out.println(sortedResults);
     }
 }
