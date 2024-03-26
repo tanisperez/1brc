@@ -22,14 +22,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Queue;
 import java.util.TreeMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 import static java.nio.file.Files.newBufferedReader;
 
 public class CalculateAverage_tanisperez {
-
     private static final String FILE = "./measurements.txt";
 
     private record Measurement(String station, long value) {
@@ -87,7 +86,6 @@ public class CalculateAverage_tanisperez {
     }
 
     private static final class Producer implements Runnable {
-
         private int numberOfCores;
         private AtomicBoolean eof;
         private Map<Integer, Queue<Measurement>> queues;
@@ -116,8 +114,6 @@ public class CalculateAverage_tanisperez {
             catch (final Exception exception) {
                 exception.printStackTrace();
             }
-
-            System.out.println("Producer finished");
         }
 
         private Integer getStationCoreAssignation(String station) {
@@ -146,7 +142,6 @@ public class CalculateAverage_tanisperez {
                     results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
                 }
             }
-            System.out.println("Consumer " + Thread.currentThread().getName() + " finished");
         }
     }
 
@@ -158,9 +153,21 @@ public class CalculateAverage_tanisperez {
         return queues;
     }
 
+    private static Map<String, ResultRow> getSortedResults(Map<String, MeasurementAggregator> results) {
+        final Map<String, ResultRow> sortedResults = new TreeMap<>();
+        for (final Map.Entry<String, MeasurementAggregator> entry : results.entrySet()) {
+            final double min = entry.getValue().min / 10.0;
+            final double max = entry.getValue().max / 10.0;
+            final double sum = entry.getValue().sum / 10.0;
+            ResultRow resultRow = new ResultRow(min, (Math.round(sum * 10.0) / 10.0) / entry.getValue().count, max);
+
+            sortedResults.put(entry.getKey(), resultRow);
+        }
+        return sortedResults;
+    }
+
     public static void main(String[] args) throws Exception {
-        // My MacBook Pro has 4 physical cores and 4 logical cores. With 8 cores the performance is worse because
-        // of the logical cores.
+        // My MacBook Pro has 4 physical cores and 4 logical cores. With 8 threads the performance is worse...
         final int numberOfCores = Runtime.getRuntime().availableProcessors() / 2;
 
         final AtomicBoolean eof = new AtomicBoolean(false);
@@ -182,19 +189,7 @@ public class CalculateAverage_tanisperez {
             consumers[i].join();
         }
 
-        Map<String, ResultRow> accumulatedResults = results.entrySet()
-                .stream()
-                .collect(Collectors.toMap(Map.Entry::getKey,
-                        resultRow -> {
-                            final double min = resultRow.getValue().min / 10.0;
-                            final double max = resultRow.getValue().max / 10.0;
-                            final double sum = resultRow.getValue().sum / 10.0;
-                            return new ResultRow(min, (Math.round(sum * 10.0) / 10.0) / resultRow.getValue().count, max);
-                        }));
-
-        TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
-        sortedResults.putAll(accumulatedResults);
-
+        final Map<String, ResultRow> sortedResults = getSortedResults(results);
         System.out.println(sortedResults);
     }
 
