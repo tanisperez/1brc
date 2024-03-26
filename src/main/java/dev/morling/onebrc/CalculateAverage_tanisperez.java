@@ -16,11 +16,11 @@
 package dev.morling.onebrc;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Queue;
 import java.util.TreeMap;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -91,10 +91,10 @@ public class CalculateAverage_tanisperez {
 
         private int numberOfCores;
         private AtomicBoolean eof;
-        private Map<Integer, BlockingQueue<Measurement>> queues;
+        private Map<Integer, Queue<Measurement>> queues;
         private Map<String, Integer> stationCoreAssignation = new HashMap<>();
 
-        private Producer(int numberOfCores, AtomicBoolean eof, Map<Integer, BlockingQueue<Measurement>> queues) {
+        private Producer(int numberOfCores, AtomicBoolean eof, Map<Integer, Queue<Measurement>> queues) {
             this.numberOfCores = numberOfCores;
             this.eof = eof;
             this.queues = queues;
@@ -112,9 +112,10 @@ public class CalculateAverage_tanisperez {
                     final Measurement measurement = Measurement.from(line);
                     final Integer cpuCoreAssignation = getStationCoreAssignation(measurement.station);
 
-                    queues.get(cpuCoreAssignation).put(measurement);
+                    queues.get(cpuCoreAssignation).add(measurement);
                 }
-            } catch (final Exception exception) {
+            }
+            catch (final Exception exception) {
                 exception.printStackTrace();
             }
 
@@ -135,10 +136,10 @@ public class CalculateAverage_tanisperez {
 
     private static final class Consumer implements Runnable {
         private AtomicBoolean eof;
-        private BlockingQueue<Measurement> queue;
+        private Queue<Measurement> queue;
         private Map<String, MeasurementAggregator> results;
 
-        private Consumer(AtomicBoolean eof, BlockingQueue<Measurement> queue, Map<String, MeasurementAggregator> results) {
+        private Consumer(AtomicBoolean eof, Queue<Measurement> queue, Map<String, MeasurementAggregator> results) {
             this.eof = eof;
             this.queue = queue;
             this.results = results;
@@ -146,26 +147,22 @@ public class CalculateAverage_tanisperez {
 
         @Override
         public void run() {
-            try {
-                while (!queue.isEmpty() || !eof.get()) {
-                    final Measurement measurement = queue.poll(50, TimeUnit.MILLISECONDS);
+            while (!queue.isEmpty() || !eof.get()) {
+                final Measurement measurement = queue.poll();
 
-                    if (measurement != null) {
-                        MeasurementAggregator measurementAggregator = new MeasurementAggregator(measurement.value);
-                        results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
-                    }
+                if (measurement != null) {
+                    MeasurementAggregator measurementAggregator = new MeasurementAggregator(measurement.value);
+                    results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
                 }
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
             }
-            System.out.println(STR."Consumer \{Thread.currentThread().getName()} finished");
+            System.out.println("Consumer " + Thread.currentThread().getName() + " finished");
         }
     }
 
-    private static Map<Integer, BlockingQueue<Measurement>> createQueues(int numberOfCores) {
-        Map<Integer, BlockingQueue<Measurement>> queues = new HashMap<>();
+    private static Map<Integer, Queue<Measurement>> createQueues(int numberOfCores) {
+        Map<Integer, Queue<Measurement>> queues = new HashMap<>();
         for (int i = 0; i < numberOfCores; i++) {
-            queues.put(i, new LinkedBlockingQueue<>());
+            queues.put(i, new LinkedTransferQueue<>());
         }
         return queues;
     }
@@ -175,7 +172,7 @@ public class CalculateAverage_tanisperez {
 
         final AtomicBoolean eof = new AtomicBoolean(false);
 
-        Map<Integer, BlockingQueue<Measurement>> queues = createQueues(numberOfCores);
+        Map<Integer, Queue<Measurement>> queues = createQueues(numberOfCores);
         Map<String, MeasurementAggregator> results = new ConcurrentHashMap<>(10_000);
 
         Thread producer = new Thread(new Producer(numberOfCores, eof, queues));
@@ -193,14 +190,12 @@ public class CalculateAverage_tanisperez {
         }
 
         Map<String, ResultRow> accumulatedResults = results.entrySet()
-            .stream()
-            .collect(Collectors.toMap(Map.Entry::getKey,
-                resultRow -> new ResultRow(
-                    resultRow.getValue().min,
-                    (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
-                    resultRow.getValue().max)
-                )
-            );
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        resultRow -> new ResultRow(
+                                resultRow.getValue().min,
+                                (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
+                                resultRow.getValue().max)));
 
         TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
         sortedResults.putAll(accumulatedResults);
