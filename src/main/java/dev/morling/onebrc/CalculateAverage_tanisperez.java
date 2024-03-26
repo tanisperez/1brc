@@ -39,8 +39,9 @@ public class CalculateAverage_tanisperez {
             }
             String station = line.substring(0, separatorPosition);
 
-            char[] value = new char[line.length() - separatorPosition - 2];
-            for (int index = 0, i = separatorPosition + 1; i < line.length(); i++) {
+            int lineLength = line.length();
+            char[] value = new char[lineLength - separatorPosition - 2];
+            for (int index = 0, i = separatorPosition + 1; i < lineLength; i++) {
                 final char character = line.charAt(i);
                 if (character != '.') {
                     value[index++] = character;
