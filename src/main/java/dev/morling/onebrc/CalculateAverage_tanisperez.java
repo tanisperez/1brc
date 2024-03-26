@@ -19,6 +19,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.*;
@@ -31,33 +32,29 @@ public class CalculateAverage_tanisperez {
 
     private static final String FILE = "./measurements.txt";
 
-    private static record Measurement(String station, double value) {
-        private Measurement(String[] parts) {
-            this(parts[0], Double.parseDouble(parts[1]));
-        }
+    private record Measurement(String station, double value) {
 
         public static Measurement from(final String line) {
-//            boolean readingValue = false;
-//            final StringBuilder station = new StringBuilder(line.length());
-//            final StringBuilder value = new StringBuilder(line.length());
-//            for (int i = 0; i < line.length(); i++) {
-//                final char character = line.charAt(i);
-//                if (character == ';') {
-//                    readingValue = true;
-//                    continue;
-//                }
-//                if (readingValue) {
-//                    value.append(character);
-//                } else {
-//                    station.append(character);
-//                }
-//            }
-            final String[] parts = line.split(";");
-            return new Measurement(parts[0], Double.parseDouble(parts[1]));
+            boolean readingValue = false;
+            final StringBuilder station = new StringBuilder(line.length());
+            final StringBuilder value = new StringBuilder(line.length());
+            for (int i = 0; i < line.length(); i++) {
+                final char character = line.charAt(i);
+                if (character == ';') {
+                    readingValue = true;
+                    continue;
+                }
+                if (readingValue) {
+                    value.append(character);
+                } else {
+                    station.append(character);
+                }
+            }
+            return new Measurement(station.toString(), Double.parseDouble(value.toString()));
         }
     }
 
-    private static record ResultRow(double min, double mean, double max) {
+    private record ResultRow(double min, double mean, double max) {
 
         public String toString() {
             return round(min) + "/" + round(mean) + "/" + round(max);
@@ -69,8 +66,8 @@ public class CalculateAverage_tanisperez {
     };
 
     private static class MeasurementAggregator {
-        private double min = Double.POSITIVE_INFINITY;
-        private double max = Double.NEGATIVE_INFINITY;
+        private double min;
+        private double max;
         private double sum;
         private long count;
 
@@ -90,16 +87,21 @@ public class CalculateAverage_tanisperez {
         }
     }
 
-    public static void main(String[] args) throws IOException {
-        final int numberOfCores = Runtime.getRuntime().availableProcessors();
-        var executorsService = Executors.newFixedThreadPool(numberOfCores + 1);
+    private static final class Producer implements Runnable {
 
-        final AtomicBoolean eof = new AtomicBoolean(false);
-        BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+        private int numberOfCores;
+        private AtomicBoolean eof;
+        private Map<Integer, BlockingQueue<Measurement>> queues;
+        private Map<String, Integer> stationCoreAssignation = new HashMap<>();
 
-        Map<String, MeasurementAggregator> results = new ConcurrentHashMap<>(10_000);
+        private Producer(int numberOfCores, AtomicBoolean eof, Map<Integer, BlockingQueue<Measurement>> queues) {
+            this.numberOfCores = numberOfCores;
+            this.eof = eof;
+            this.queues = queues;
+        }
 
-        Runnable producer = () -> {
+        @Override
+        public void run() {
             try (BufferedReader reader = newBufferedReader(Paths.get(FILE), StandardCharsets.UTF_8)) {
                 for (;;) {
                     String line = reader.readLine();
@@ -107,52 +109,103 @@ public class CalculateAverage_tanisperez {
                         eof.getAndSet(true);
                         break;
                     }
-                    queue.add(line);
+                    final Measurement measurement = Measurement.from(line);
+                    final Integer cpuCoreAssignation = getStationCoreAssignation(measurement.station);
+
+                    queues.get(cpuCoreAssignation).put(measurement);
                 }
-            }
-            catch (final Exception exception) {
+            } catch (final Exception exception) {
                 exception.printStackTrace();
             }
-        };
 
-        Runnable consumer = () -> {
+            System.out.println("Producer finished");
+        }
+
+        private Integer getStationCoreAssignation(String station) {
+            final Integer cpuAssignation = stationCoreAssignation.get(station);
+            if (cpuAssignation != null) {
+                return cpuAssignation;
+            }
+
+            final Integer index = Integer.valueOf(Math.abs(station.hashCode() % numberOfCores));
+            stationCoreAssignation.put(station, index);
+            return index;
+        }
+    }
+
+    private static final class Consumer implements Runnable {
+        private AtomicBoolean eof;
+        private BlockingQueue<Measurement> queue;
+        private Map<String, MeasurementAggregator> results;
+
+        private Consumer(AtomicBoolean eof, BlockingQueue<Measurement> queue, Map<String, MeasurementAggregator> results) {
+            this.eof = eof;
+            this.queue = queue;
+            this.results = results;
+        }
+
+        @Override
+        public void run() {
             try {
                 while (!queue.isEmpty() || !eof.get()) {
-                    final String line = queue.take();
-                    final Measurement measurement = Measurement.from(line);
+                    final Measurement measurement = queue.poll(50, TimeUnit.MILLISECONDS);
 
-                    MeasurementAggregator measurementAggregator = new MeasurementAggregator(measurement.value);
-                    results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
+                    if (measurement != null) {
+                        MeasurementAggregator measurementAggregator = new MeasurementAggregator(measurement.value);
+                        results.merge(measurement.station, measurementAggregator, MeasurementAggregator::merge);
+                    }
                 }
-            }
-            catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-        };
-
-        try {
-            executorsService.submit(producer);
-            for (int i = 0; i < numberOfCores; i++) {
-                executorsService.submit(consumer);
-            }
-            executorsService.shutdown();
-            executorsService.awaitTermination(100, TimeUnit.SECONDS);
+            System.out.println(STR."Consumer \{Thread.currentThread().getName()} finished");
         }
-        catch (final Exception exception) {
-            exception.printStackTrace();
+    }
+
+    private static Map<Integer, BlockingQueue<Measurement>> createQueues(int numberOfCores) {
+        Map<Integer, BlockingQueue<Measurement>> queues = new HashMap<>();
+        for (int i = 0; i < numberOfCores; i++) {
+            queues.put(i, new LinkedBlockingQueue<>());
+        }
+        return queues;
+    }
+
+    public static void main(String[] args) throws Exception {
+        final int numberOfCores = Runtime.getRuntime().availableProcessors();
+
+        final AtomicBoolean eof = new AtomicBoolean(false);
+
+        Map<Integer, BlockingQueue<Measurement>> queues = createQueues(numberOfCores);
+        Map<String, MeasurementAggregator> results = new ConcurrentHashMap<>(10_000);
+
+        Thread producer = new Thread(new Producer(numberOfCores, eof, queues));
+        producer.start();
+
+        Thread[] consumers = new Thread[numberOfCores];
+        for (int i = 0; i < numberOfCores; i++) {
+            consumers[i] = new Thread(new Consumer(eof, queues.get(Integer.valueOf(i)), results));
+            consumers[i].start();
+        }
+
+        producer.join();
+        for (int i = 0; i < numberOfCores; i++) {
+            consumers[i].join();
         }
 
         Map<String, ResultRow> accumulatedResults = results.entrySet()
-                .stream()
-                .collect(Collectors.toMap(Map.Entry::getKey,
-                        resultRow -> new ResultRow(
-                                resultRow.getValue().min,
-                                (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
-                                resultRow.getValue().max)));
+            .stream()
+            .collect(Collectors.toMap(Map.Entry::getKey,
+                resultRow -> new ResultRow(
+                    resultRow.getValue().min,
+                    (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
+                    resultRow.getValue().max)
+                )
+            );
 
         TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
         sortedResults.putAll(accumulatedResults);
 
         System.out.println(sortedResults);
     }
+
 }
