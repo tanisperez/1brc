@@ -167,7 +167,9 @@ public class CalculateAverage_tanisperez {
     }
 
     public static void main(String[] args) throws Exception {
-        final int numberOfCores = Runtime.getRuntime().availableProcessors();
+        // My MacBook Pro has 4 physical cores and 4 logical cores. With 8 cores the performance is worse because
+        // of the logical cores.
+        final int numberOfCores = Runtime.getRuntime().availableProcessors() / 2;
 
         final AtomicBoolean eof = new AtomicBoolean(false);
 
