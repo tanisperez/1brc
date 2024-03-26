@@ -43,7 +43,7 @@ public class CalculateAverage_tanisperez {
             for (int index = 0, i = separatorPosition + 1; i < line.length(); i++) {
                 final char character = line.charAt(i);
                 if (character != '.') {
-                    value[index++] = line.charAt(i);
+                    value[index++] = character;
                 }
             }
 
