@@ -32,7 +32,7 @@ public class CalculateAverage_tanisperez {
 
     private static final String FILE = "./measurements.txt";
 
-    private record Measurement(String station, double value) {
+    private record Measurement(String station, long value) {
 
         public static Measurement from(final String line) {
             boolean readingValue = false;
@@ -44,13 +44,16 @@ public class CalculateAverage_tanisperez {
                     readingValue = true;
                     continue;
                 }
+                if (readingValue && character == '.') {
+                    continue;
+                }
                 if (readingValue) {
                     value.append(character);
                 } else {
                     station.append(character);
                 }
             }
-            return new Measurement(station.toString(), Double.parseDouble(value.toString()));
+            return new Measurement(station.toString(), Long.parseLong(value.toString()));
         }
     }
 
@@ -66,12 +69,12 @@ public class CalculateAverage_tanisperez {
     };
 
     private static class MeasurementAggregator {
-        private double min;
-        private double max;
-        private double sum;
+        private long min;
+        private long max;
+        private long sum;
         private long count;
 
-        public MeasurementAggregator(double sum) {
+        public MeasurementAggregator(long sum) {
             this.min = sum;
             this.max = sum;
             this.sum = sum;
@@ -192,10 +195,12 @@ public class CalculateAverage_tanisperez {
         Map<String, ResultRow> accumulatedResults = results.entrySet()
                 .stream()
                 .collect(Collectors.toMap(Map.Entry::getKey,
-                        resultRow -> new ResultRow(
-                                resultRow.getValue().min,
-                                (Math.round(resultRow.getValue().sum * 10.0) / 10.0) / resultRow.getValue().count,
-                                resultRow.getValue().max)));
+                        resultRow -> {
+                            final double min = resultRow.getValue().min / 10.0;
+                            final double max = resultRow.getValue().max / 10.0;
+                            final double sum = resultRow.getValue().sum / 10.0;
+                            return new ResultRow(min, (Math.round(sum * 10.0) / 10.0) / resultRow.getValue().count, max);
+                        }));
 
         TreeMap<String, ResultRow> sortedResults = new TreeMap<>();
         sortedResults.putAll(accumulatedResults);
