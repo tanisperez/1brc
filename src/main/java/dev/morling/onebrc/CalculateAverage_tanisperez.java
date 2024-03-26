@@ -31,7 +31,7 @@ import static java.nio.file.Files.newBufferedReader;
 public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements.txt";
 
-    private record Measurement(String station, long value) {
+    private record Measurement(String station, int value) {
         public static Measurement from(final String line) {
             int separatorPosition = 0;
             while (line.charAt(separatorPosition) != ';') {
@@ -48,7 +48,7 @@ public class CalculateAverage_tanisperez {
             }
 
             final String measure = new String(value);
-            return new Measurement(station, Long.parseLong(measure));
+            return new Measurement(station, Integer.parseInt(measure));
         }
     }
 
@@ -69,7 +69,7 @@ public class CalculateAverage_tanisperez {
         private long sum;
         private long count;
 
-        public MeasurementAggregator(long sum) {
+        public MeasurementAggregator(int sum) {
             this.min = sum;
             this.max = sum;
             this.sum = sum;
@@ -117,6 +117,7 @@ public class CalculateAverage_tanisperez {
         }
 
         private Integer getStationCoreAssignation(char firstLetter) {
+            // Improve with a custom hash with bit shiffting by the numberOfCores
             return Integer.valueOf(Math.abs(Character.hashCode(firstLetter) % numberOfCores));
         }
     }
