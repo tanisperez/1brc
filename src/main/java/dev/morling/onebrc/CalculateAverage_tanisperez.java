@@ -91,7 +91,6 @@ public class CalculateAverage_tanisperez {
         private int numberOfCores;
         private AtomicBoolean eof;
         private Map<Integer, Queue<Measurement>> queues;
-        private Map<String, Integer> stationCoreAssignation = new HashMap<>();
 
         private Producer(int numberOfCores, AtomicBoolean eof, Map<Integer, Queue<Measurement>> queues) {
             this.numberOfCores = numberOfCores;
@@ -122,14 +121,7 @@ public class CalculateAverage_tanisperez {
         }
 
         private Integer getStationCoreAssignation(String station) {
-            final Integer cpuAssignation = stationCoreAssignation.get(station);
-            if (cpuAssignation != null) {
-                return cpuAssignation;
-            }
-
-            final Integer index = Integer.valueOf(Math.abs(station.hashCode() % numberOfCores));
-            stationCoreAssignation.put(station, index);
-            return index;
+            return Integer.valueOf(Math.abs(station.hashCode() % numberOfCores));
         }
     }
 
