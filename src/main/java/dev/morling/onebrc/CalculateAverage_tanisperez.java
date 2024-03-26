@@ -33,27 +33,23 @@ public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements.txt";
 
     private record Measurement(String station, long value) {
-
         public static Measurement from(final String line) {
-            boolean readingValue = false;
-            final StringBuilder station = new StringBuilder(line.length());
-            final StringBuilder value = new StringBuilder(line.length());
-            for (int i = 0; i < line.length(); i++) {
+            int separatorPosition = 0;
+            while (line.charAt(separatorPosition) != ';') {
+                separatorPosition++;
+            }
+            String station = line.substring(0, separatorPosition);
+
+            char[] value = new char[line.length() - separatorPosition - 2];
+            for (int index = 0, i = separatorPosition + 1; i < line.length(); i++) {
                 final char character = line.charAt(i);
-                if (character == ';') {
-                    readingValue = true;
-                    continue;
-                }
-                if (readingValue && character == '.') {
-                    continue;
-                }
-                if (readingValue) {
-                    value.append(character);
-                } else {
-                    station.append(character);
+                if (character != '.') {
+                    value[index++] = line.charAt(i);
                 }
             }
-            return new Measurement(station.toString(), Long.parseLong(value.toString()));
+
+            final String measure = new String(value);
+            return new Measurement(station, Long.parseLong(measure));
         }
     }
 
