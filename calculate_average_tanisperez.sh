@@ -15,5 +15,10 @@
 #  limitations under the License.
 #
 
-JAVA_OPTS=""
-java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_tanisperez
+if [ -f target/CalculateAverage_tanisperez_image ]; then
+    echo "Picking up existing native image 'target/CalculateAverage_tanisperez_image', delete the file to select JVM mode." 1>&2
+    target/CalculateAverage_tanisperez_image
+else
+    JAVA_OPTS=""
+    java $JAVA_OPTS --class-path target/average-1.0.0-SNAPSHOT.jar dev.morling.onebrc.CalculateAverage_tanisperez
+fi

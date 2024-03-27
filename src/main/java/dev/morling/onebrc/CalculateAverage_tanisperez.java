@@ -24,8 +24,18 @@ import java.util.stream.Collector;
 
 import static java.util.stream.Collectors.groupingBy;
 
+
+/**
+ * Tests on my MacBook Pro 2020 with i5 and 16 GB of RAM.
+ *
+ * 1. baseline with zulu 21 -> 3:53
+ * 2. my implementation with zulu 21 -> 2:02
+ * 3. baseline with GraalVM 21.0.2 -> 3:33
+ * 4. my implementation with GraalVM 21.0.2 -> 2:09
+ * 5. native image -> 5:18
+ */
 public class CalculateAverage_tanisperez {
-    private static final String FILE = "./measurements-1br.txt";
+    private static final String FILE = "./measurements.txt";
 
     private static record Measurement(String station, int value) {
         public static Measurement from(final String line) {
