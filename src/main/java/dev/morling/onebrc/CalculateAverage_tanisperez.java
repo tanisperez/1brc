@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
  * 3. baseline with GraalVM 21.0.2 -> 3:33
  * 4. my implementation with GraalVM 21.0.2 -> 2:09
  * 5. native image -> 5:18
+ * 6. Multithread implementation with zulu 21 -> 1:14
+ * 7. Multithread implementation with GraalVM 21.0.2 -> 1:04
  */
 public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements.txt";
@@ -69,21 +71,22 @@ public class CalculateAverage_tanisperez {
     };
 
     private static class MeasurementAggregator {
-        private double min = Double.POSITIVE_INFINITY;
-        private double max = Double.NEGATIVE_INFINITY;
+        private long min;
+        private long max;
         private long sum;
         private long count;
 
-        static MeasurementAggregator from(Measurement measurement) {
-            final MeasurementAggregator measurementAggregator = new MeasurementAggregator();
-            measurementAggregator.min = measurement.value;
-            measurementAggregator.max = measurement.value;
-            measurementAggregator.sum = measurement.value;
-            measurementAggregator.count = 1;
-            return measurementAggregator;
+        private MeasurementAggregator() {
         }
 
-        static MeasurementAggregator combine(MeasurementAggregator agg1, MeasurementAggregator agg2) {
+        private MeasurementAggregator(int value) {
+            this.min = value;
+            this.max = value;
+            this.sum = value;
+            this.count = 1;
+        }
+
+        static MeasurementAggregator merge(MeasurementAggregator agg1, MeasurementAggregator agg2) {
             MeasurementAggregator result = new MeasurementAggregator();
             result.min = Math.min(agg1.min, agg2.min);
             result.max = Math.max(agg1.max, agg2.max);
@@ -133,11 +136,10 @@ public class CalculateAverage_tanisperez {
     }
 
     private static final class ChunkWorker implements Runnable {
+        private final MappedByteBuffer mappedByteBuffer;
+        private final Map<String, MeasurementAggregator> results;
 
-        private MappedByteBuffer mappedByteBuffer;
-        private Map<String, MeasurementAggregator> results;
-
-        public ChunkWorker(MappedByteBuffer mappedByteBuffer, Map<String, MeasurementAggregator> results) {
+        private ChunkWorker(MappedByteBuffer mappedByteBuffer, Map<String, MeasurementAggregator> results) {
             this.mappedByteBuffer = mappedByteBuffer;
             this.results = results;
         }
@@ -157,7 +159,7 @@ public class CalculateAverage_tanisperez {
                 final String line = new String(buffer, 0, bufferLength);
                 final Measurement measurement = Measurement.from(line);
 
-                results.merge(measurement.station, MeasurementAggregator.from(measurement), MeasurementAggregator::combine);
+                results.merge(measurement.station, new MeasurementAggregator(measurement.value), MeasurementAggregator::merge);
             }
         }
     }
@@ -185,7 +187,7 @@ public class CalculateAverage_tanisperez {
         Map<String, MeasurementAggregator> accumulatedMeassures = new HashMap<>();
         for (Map<String, MeasurementAggregator> meassures : results.values()) {
             for (java.util.Map.Entry<String, MeasurementAggregator> entry : meassures.entrySet()) {
-                accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::combine);
+                accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::merge);
             }
         }
 
