@@ -21,7 +21,6 @@ import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Tests on my MacBook Pro 2020 with i5 and 16 GB of RAM.
@@ -33,22 +32,54 @@ import java.util.stream.Collectors;
  * 5. native image -> 5:18
  * 6. Multithread implementation with zulu 21 -> 1:14
  * 7. Multithread implementation with GraalVM 21.0.2 -> 1:04
+ * 8. Improved multithread implementation with GraalVM 21.0.2 -> 0:51
  */
 public class CalculateAverage_tanisperez {
-    private static final String FILE = "./measurements.txt";
+    private static final String FILE = "./measurements-1br.txt";
 
-    private static record Measurement(String station, int value) {
-        public static Measurement from(final String line) {
+    private static final class Station {
+        final byte[] buffer;
+        final int hashCode;
+
+        private Station(byte[] buffer) {
+            this.buffer = buffer;
+            this.hashCode = Arrays.hashCode(this.buffer);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o)
+                return true;
+            if (o == null || getClass() != o.getClass())
+                return false;
+            Station station = (Station) o;
+            return Arrays.equals(buffer, station.buffer);
+        }
+
+        @Override
+        public int hashCode() {
+            return this.hashCode;
+        }
+
+        @Override
+        public String toString() {
+            return new String(this.buffer);
+        }
+    }
+
+    private static record Measurement(Station station, int value) {
+        public static Measurement from(final byte[] line, final int length) {
             int separatorPosition = 0;
-            while (line.charAt(separatorPosition) != ';') {
+            while (line[separatorPosition] != ';') {
                 separatorPosition++;
             }
-            String station = line.substring(0, separatorPosition);
+            byte[] stationBuffer = new byte[separatorPosition];
+            System.arraycopy(line, 0, stationBuffer, 0, separatorPosition);
+            Station station = new Station(stationBuffer);
 
-            int lineLength = line.length();
-            char[] value = new char[lineLength - separatorPosition - 2];
-            for (int index = 0, i = separatorPosition + 1; i < lineLength; i++) {
-                final char character = line.charAt(i);
+            byte[] value = new byte[length - separatorPosition - 2];
+            for (int index = 0, i = separatorPosition + 1; i < length; i++) {
+                final byte character = line[i];
                 if (character != '.') {
                     value[index++] = character;
                 }
@@ -137,9 +168,9 @@ public class CalculateAverage_tanisperez {
 
     private static final class ChunkWorker implements Runnable {
         private final MappedByteBuffer mappedByteBuffer;
-        private final Map<String, MeasurementAggregator> results;
+        private final Map<Station, MeasurementAggregator> results;
 
-        private ChunkWorker(MappedByteBuffer mappedByteBuffer, Map<String, MeasurementAggregator> results) {
+        private ChunkWorker(MappedByteBuffer mappedByteBuffer, Map<Station, MeasurementAggregator> results) {
             this.mappedByteBuffer = mappedByteBuffer;
             this.results = results;
         }
@@ -156,8 +187,7 @@ public class CalculateAverage_tanisperez {
                     byteRead = mappedByteBuffer.get();
                 }
 
-                final String line = new String(buffer, 0, bufferLength);
-                final Measurement measurement = Measurement.from(line);
+                final Measurement measurement = Measurement.from(buffer, bufferLength);
 
                 results.merge(measurement.station, new MeasurementAggregator(measurement.value), MeasurementAggregator::merge);
             }
@@ -171,9 +201,9 @@ public class CalculateAverage_tanisperez {
         List<MappedByteBuffer> chunks = splitFileInChunks(file, numberOfCores);
 
         Thread[] workers = new Thread[numberOfCores];
-        Map<Integer, Map<String, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
+        Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
         for (int i = 0; i < numberOfCores; i++) {
-            Map<String, MeasurementAggregator> workerResults = new HashMap<>();
+            Map<Station, MeasurementAggregator> workerResults = new HashMap<>();
             results.put(Integer.valueOf(i), workerResults);
 
             workers[i] = new Thread(new ChunkWorker(chunks.get(i), workerResults));
@@ -184,19 +214,35 @@ public class CalculateAverage_tanisperez {
             workers[i].join();
         }
 
-        Map<String, MeasurementAggregator> accumulatedMeassures = new HashMap<>();
-        for (Map<String, MeasurementAggregator> meassures : results.values()) {
-            for (java.util.Map.Entry<String, MeasurementAggregator> entry : meassures.entrySet()) {
+        Map<Station, MeasurementAggregator> accumulatedMeassures = new HashMap<>();
+        for (Map<Station, MeasurementAggregator> meassures : results.values()) {
+            for (java.util.Map.Entry<Station, MeasurementAggregator> entry : meassures.entrySet()) {
                 accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::merge);
             }
         }
 
-        Map<String, ResultRow> accumulatedMeasures = new TreeMap<>(
-                accumulatedMeassures.entrySet().stream()
-                        .map(e -> new AbstractMap.SimpleEntry<String, ResultRow>(e.getKey(), e.getValue().toResultRow()))
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+        Map<String, ResultRow> sortedResults = new TreeMap<>();
+        for (java.util.Map.Entry<Station, MeasurementAggregator> entry: accumulatedMeassures.entrySet()) {
+            sortedResults.put(entry.getKey().toString(), entry.getValue().toResultRow());
+        }
 
-        System.out.println(accumulatedMeasures);
+        // Map<Station, MeasurementAggregator> accumulatedMeasures = results.values().stream()
+        //     .flatMap(measures -> measures.entrySet().stream())
+        //     .collect(Collectors.toMap(
+        //         Map.Entry::getKey,
+        //         Map.Entry::getValue,
+        //         MeasurementAggregator::merge
+        //     ));
+
+        // Map<String, ResultRow> sortedResults = accumulatedMeasures.entrySet().stream()
+        //     .collect(Collectors.toMap(
+        //         entry -> entry.getKey().toString(),
+        //         entry -> entry.getValue().toResultRow(),
+        //         (existing, replacement) -> existing,
+        //         TreeMap::new
+        //     ));
+
+        System.out.println(sortedResults);
     }
 
 }
