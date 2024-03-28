@@ -33,6 +33,8 @@ import java.util.*;
  * 6. Multithread implementation with zulu 21 -> 1:14
  * 7. Multithread implementation with GraalVM 21.0.2 -> 1:04
  * 8. Improved multithread implementation with GraalVM 21.0.2 -> 0:51
+ * 9. Custom parseInt with GraalVM 21.0.2 -> 0:44
+ * 10. Inlining POW_10X with GraalVM 21.0.2 -> 0:40.858
  */
 public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements-1br.txt";
@@ -68,6 +70,13 @@ public class CalculateAverage_tanisperez {
     }
 
     private static record Measurement(Station station, int value) {
+        private static final int[] POW_10X = new int[] {
+            1,
+            10,
+            100,
+            1000
+        };
+
         public static Measurement from(final byte[] line, final int length) {
             int separatorPosition = 0;
             while (line[separatorPosition] != ';') {
@@ -85,8 +94,20 @@ public class CalculateAverage_tanisperez {
                 }
             }
 
-            final String measure = new String(value);
-            return new Measurement(station, Integer.parseInt(measure));
+            int intValue = fastAsciiBytesToInt(value);
+            return new Measurement(station, intValue);
+        }
+
+        public static int fastAsciiBytesToInt(byte[] buffer) {
+            boolean isNegative = buffer[0] == '-';
+            int startPosition = isNegative ? 1 : 0;
+
+            int result = 0;
+            for (int i = startPosition; i < buffer.length; i++) {
+                result += (buffer[i] - 48) * (POW_10X[buffer.length - i - 1]);
+            }
+
+            return isNegative ? -result: result;
         }
     }
 
@@ -222,25 +243,25 @@ public class CalculateAverage_tanisperez {
         }
 
         Map<String, ResultRow> sortedResults = new TreeMap<>();
-        for (java.util.Map.Entry<Station, MeasurementAggregator> entry: accumulatedMeassures.entrySet()) {
+        for (java.util.Map.Entry<Station, MeasurementAggregator> entry : accumulatedMeassures.entrySet()) {
             sortedResults.put(entry.getKey().toString(), entry.getValue().toResultRow());
         }
 
         // Map<Station, MeasurementAggregator> accumulatedMeasures = results.values().stream()
-        //     .flatMap(measures -> measures.entrySet().stream())
-        //     .collect(Collectors.toMap(
-        //         Map.Entry::getKey,
-        //         Map.Entry::getValue,
-        //         MeasurementAggregator::merge
-        //     ));
+        // .flatMap(measures -> measures.entrySet().stream())
+        // .collect(Collectors.toMap(
+        // Map.Entry::getKey,
+        // Map.Entry::getValue,
+        // MeasurementAggregator::merge
+        // ));
 
         // Map<String, ResultRow> sortedResults = accumulatedMeasures.entrySet().stream()
-        //     .collect(Collectors.toMap(
-        //         entry -> entry.getKey().toString(),
-        //         entry -> entry.getValue().toResultRow(),
-        //         (existing, replacement) -> existing,
-        //         TreeMap::new
-        //     ));
+        // .collect(Collectors.toMap(
+        // entry -> entry.getKey().toString(),
+        // entry -> entry.getValue().toResultRow(),
+        // (existing, replacement) -> existing,
+        // TreeMap::new
+        // ));
 
         System.out.println(sortedResults);
     }
