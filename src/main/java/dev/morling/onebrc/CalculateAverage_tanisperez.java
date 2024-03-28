@@ -16,14 +16,12 @@
 package dev.morling.onebrc;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.stream.Collector;
-
-import static java.util.stream.Collectors.groupingBy;
-
+import java.io.RandomAccessFile;
+import java.nio.ByteOrder;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Tests on my MacBook Pro 2020 with i5 and 16 GB of RAM.
@@ -76,12 +74,13 @@ public class CalculateAverage_tanisperez {
         private long sum;
         private long count;
 
-        MeasurementAggregator accumulate(Measurement measure) {
-            this.max = Math.max(measure.value, this.max);
-            this.min = Math.min(measure.value, this.min);
-            this.sum += measure.value;
-            this.count++;
-            return this;
+        static MeasurementAggregator from(Measurement measurement) {
+            final MeasurementAggregator measurementAggregator = new MeasurementAggregator();
+            measurementAggregator.min = measurement.value;
+            measurementAggregator.max = measurement.value;
+            measurementAggregator.sum = measurement.value;
+            measurementAggregator.count = 1;
+            return measurementAggregator;
         }
 
         static MeasurementAggregator combine(MeasurementAggregator agg1, MeasurementAggregator agg2) {
@@ -101,19 +100,101 @@ public class CalculateAverage_tanisperez {
         }
     }
 
-    public static void main(String[] args) throws IOException {
-        Collector<Measurement, MeasurementAggregator, ResultRow> collector = Collector.of(
-                MeasurementAggregator::new,
-                MeasurementAggregator::accumulate,
-                MeasurementAggregator::combine,
-                MeasurementAggregator::toResultRow);
+    private static List<MappedByteBuffer> splitFileInChunks(RandomAccessFile file, int numberOfCores) throws IOException {
+        FileChannel fileChannel = file.getChannel();
 
-        Map<String, ResultRow> measurements = new TreeMap<>(Files.lines(Paths.get(FILE))
-                .parallel()
-                .map(Measurement::from)
-                .collect(groupingBy(Measurement::station, collector)));
+        long fileSize = fileChannel.size();
+        long chunkSize = fileSize / numberOfCores;
 
-        System.out.println(measurements);
+        List<MappedByteBuffer> chunks = new ArrayList<>((int) (fileSize / chunkSize) + 1);
+
+        long chunkStart = 0L;
+        while (chunkStart < fileSize) {
+            long currentPosition = chunkStart + chunkSize;
+            if (currentPosition < fileSize) {
+                file.seek(currentPosition);
+                while (file.read() != '\n') {
+                    currentPosition++;
+                }
+                currentPosition++; // Skip the \n position
+            }
+            else {
+                currentPosition = fileSize;
+            }
+
+            MappedByteBuffer buffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, chunkStart, currentPosition - chunkStart);
+            buffer.order(ByteOrder.nativeOrder());
+            chunks.add(buffer);
+
+            chunkStart = currentPosition;
+        }
+
+        return chunks;
+    }
+
+    private static final class ChunkWorker implements Runnable {
+
+        private MappedByteBuffer mappedByteBuffer;
+        private Map<String, MeasurementAggregator> results;
+
+        public ChunkWorker(MappedByteBuffer mappedByteBuffer, Map<String, MeasurementAggregator> results) {
+            this.mappedByteBuffer = mappedByteBuffer;
+            this.results = results;
+        }
+
+        @Override
+        public void run() {
+            byte[] buffer = new byte[255];
+            while (mappedByteBuffer.position() < mappedByteBuffer.limit()) {
+                int bufferLength = 0;
+
+                byte byteRead = mappedByteBuffer.get();
+                while (byteRead != '\n') {
+                    buffer[bufferLength++] = byteRead;
+                    byteRead = mappedByteBuffer.get();
+                }
+
+                final String line = new String(buffer, 0, bufferLength);
+                final Measurement measurement = Measurement.from(line);
+
+                results.merge(measurement.station, MeasurementAggregator.from(measurement), MeasurementAggregator::combine);
+            }
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        int numberOfCores = Runtime.getRuntime().availableProcessors();
+
+        RandomAccessFile file = new RandomAccessFile(FILE, "r");
+        List<MappedByteBuffer> chunks = splitFileInChunks(file, numberOfCores);
+
+        Thread[] workers = new Thread[numberOfCores];
+        Map<Integer, Map<String, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
+        for (int i = 0; i < numberOfCores; i++) {
+            Map<String, MeasurementAggregator> workerResults = new HashMap<>();
+            results.put(Integer.valueOf(i), workerResults);
+
+            workers[i] = new Thread(new ChunkWorker(chunks.get(i), workerResults));
+            workers[i].start();
+        }
+
+        for (int i = 0; i < numberOfCores; i++) {
+            workers[i].join();
+        }
+
+        Map<String, MeasurementAggregator> accumulatedMeassures = new HashMap<>();
+        for (Map<String, MeasurementAggregator> meassures : results.values()) {
+            for (java.util.Map.Entry<String, MeasurementAggregator> entry : meassures.entrySet()) {
+                accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::combine);
+            }
+        }
+
+        Map<String, ResultRow> accumulatedMeasures = new TreeMap<>(
+                accumulatedMeassures.entrySet().stream()
+                        .map(e -> new AbstractMap.SimpleEntry<String, ResultRow>(e.getKey(), e.getValue().toResultRow()))
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+
+        System.out.println(accumulatedMeasures);
     }
 
 }
