@@ -30,9 +30,9 @@ import java.util.*;
  * 3. baseline with GraalVM 21.0.2 -> 3:33
  * 4. my implementation with GraalVM 21.0.2 -> 2:09
  * 5. native image -> 5:18
- * 6. Multithread implementation with zulu 21 -> 1:14
- * 7. Multithread implementation with GraalVM 21.0.2 -> 1:04
- * 8. Improved multithread implementation with GraalVM 21.0.2 -> 0:51
+ * 6. Multithreading implementation with zulu 21 -> 1:14
+ * 7. Multithreading implementation with GraalVM 21.0.2 -> 1:04
+ * 8. Improved multithreading implementation with GraalVM 21.0.2 -> 0:51
  * 9. Custom parseInt with GraalVM 21.0.2 -> 0:44
  * 10. Inlining POW_10X with GraalVM 21.0.2 -> 0:40.858
  */
