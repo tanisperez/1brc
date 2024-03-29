@@ -41,6 +41,86 @@ public class CalculateAverage_tanisperez {
 
     private static final int MAX_STATIONS = 10_000;
 
+    public static void main(String[] args) throws Exception {
+        int numberOfCores = Runtime.getRuntime().availableProcessors();
+
+        try (RandomAccessFile file = new RandomAccessFile(FILE, "r")) {
+            List<MappedByteBuffer> chunks = splitFileInChunks(file, numberOfCores);
+            Map<Integer, Map<Station, MeasurementAggregator>> resultsPerCore = processChunksInParallel(numberOfCores, chunks);
+            Map<Station, MeasurementAggregator> accumulatedMeasures = groupResults(resultsPerCore);
+            Map<String, ResultRow> results = getSortedResults(accumulatedMeasures);
+
+            System.out.println(results);
+        }
+    }
+
+    private static List<MappedByteBuffer> splitFileInChunks(RandomAccessFile file, int numberOfCores) throws IOException {
+        FileChannel fileChannel = file.getChannel();
+
+        long fileSize = fileChannel.size();
+        long chunkSize = fileSize / numberOfCores;
+
+        List<MappedByteBuffer> chunks = new ArrayList<>((int) (fileSize / chunkSize) + 1);
+
+        long chunkStart = 0L;
+        while (chunkStart < fileSize) {
+            long currentPosition = chunkStart + chunkSize;
+            if (currentPosition < fileSize) {
+                file.seek(currentPosition);
+                while (file.read() != '\n') {
+                    currentPosition++;
+                }
+                currentPosition++; // Skip the \n position
+            }
+            else {
+                currentPosition = fileSize;
+            }
+
+            MappedByteBuffer buffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, chunkStart, currentPosition - chunkStart);
+            buffer.order(ByteOrder.nativeOrder());
+            chunks.add(buffer);
+
+            chunkStart = currentPosition;
+        }
+
+        return chunks;
+    }
+
+    private static Map<Integer, Map<Station, MeasurementAggregator>> processChunksInParallel(int numberOfCores, List<MappedByteBuffer> chunks) throws InterruptedException {
+        Thread[] workers = new Thread[numberOfCores];
+        Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
+        for (int i = 0; i < numberOfCores; i++) {
+            Map<Station, MeasurementAggregator> workerResults = new HashMap<>(MAX_STATIONS);
+            results.put(Integer.valueOf(i), workerResults);
+
+            workers[i] = new Thread(new ChunkWorker(chunks.get(i), workerResults));
+            workers[i].start();
+        }
+
+        for (int i = 0; i < numberOfCores; i++) {
+            workers[i].join();
+        }
+        return results;
+    }
+
+    private static Map<Station, MeasurementAggregator> groupResults(Map<Integer, Map<Station, MeasurementAggregator>> results) {
+        Map<Station, MeasurementAggregator> accumulatedMeassures = new HashMap<>(MAX_STATIONS);
+        for (Map<Station, MeasurementAggregator> meassures : results.values()) {
+            for (Map.Entry<Station, MeasurementAggregator> entry : meassures.entrySet()) {
+                accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::merge);
+            }
+        }
+        return accumulatedMeassures;
+    }
+
+    private static Map<String, ResultRow> getSortedResults(Map<Station, MeasurementAggregator> accumulatedMeassures) {
+        Map<String, ResultRow> sortedResults = new TreeMap<>();
+        for (Map.Entry<Station, MeasurementAggregator> entry : accumulatedMeassures.entrySet()) {
+            sortedResults.put(entry.getKey().toString(), entry.getValue().toResultRow());
+        }
+        return sortedResults;
+    }
+
     /**
      * Station class to be used as key in the Maps. It stores the name of the station
      * using an array of bytes, instead of converting the bytes to a String.
@@ -218,38 +298,6 @@ public class CalculateAverage_tanisperez {
         }
     }
 
-    private static List<MappedByteBuffer> splitFileInChunks(RandomAccessFile file, int numberOfCores) throws IOException {
-        FileChannel fileChannel = file.getChannel();
-
-        long fileSize = fileChannel.size();
-        long chunkSize = fileSize / numberOfCores;
-
-        List<MappedByteBuffer> chunks = new ArrayList<>((int) (fileSize / chunkSize) + 1);
-
-        long chunkStart = 0L;
-        while (chunkStart < fileSize) {
-            long currentPosition = chunkStart + chunkSize;
-            if (currentPosition < fileSize) {
-                file.seek(currentPosition);
-                while (file.read() != '\n') {
-                    currentPosition++;
-                }
-                currentPosition++; // Skip the \n position
-            }
-            else {
-                currentPosition = fileSize;
-            }
-
-            MappedByteBuffer buffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, chunkStart, currentPosition - chunkStart);
-            buffer.order(ByteOrder.nativeOrder());
-            chunks.add(buffer);
-
-            chunkStart = currentPosition;
-        }
-
-        return chunks;
-    }
-
     private static final class ChunkWorker implements Runnable {
         private final MappedByteBuffer mappedByteBuffer;
         private final Map<Station, MeasurementAggregator> results;
@@ -276,57 +324,6 @@ public class CalculateAverage_tanisperez {
                 results.merge(measurement.station, new MeasurementAggregator(measurement.value), MeasurementAggregator::merge);
             }
         }
-    }
-
-    public static void main(String[] args) throws Exception {
-        int numberOfCores = Runtime.getRuntime().availableProcessors();
-
-        RandomAccessFile file = new RandomAccessFile(FILE, "r");
-        List<MappedByteBuffer> chunks = splitFileInChunks(file, numberOfCores);
-
-        Thread[] workers = new Thread[numberOfCores];
-        Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
-        for (int i = 0; i < numberOfCores; i++) {
-            Map<Station, MeasurementAggregator> workerResults = new HashMap<>(MAX_STATIONS);
-            results.put(Integer.valueOf(i), workerResults);
-
-            workers[i] = new Thread(new ChunkWorker(chunks.get(i), workerResults));
-            workers[i].start();
-        }
-
-        for (int i = 0; i < numberOfCores; i++) {
-            workers[i].join();
-        }
-
-        Map<Station, MeasurementAggregator> accumulatedMeassures = new HashMap<>(MAX_STATIONS);
-        for (Map<Station, MeasurementAggregator> meassures : results.values()) {
-            for (java.util.Map.Entry<Station, MeasurementAggregator> entry : meassures.entrySet()) {
-                accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::merge);
-            }
-        }
-
-        Map<String, ResultRow> sortedResults = new TreeMap<>();
-        for (java.util.Map.Entry<Station, MeasurementAggregator> entry : accumulatedMeassures.entrySet()) {
-            sortedResults.put(entry.getKey().toString(), entry.getValue().toResultRow());
-        }
-
-        // Map<Station, MeasurementAggregator> accumulatedMeasures = results.values().stream()
-        // .flatMap(measures -> measures.entrySet().stream())
-        // .collect(Collectors.toMap(
-        // Map.Entry::getKey,
-        // Map.Entry::getValue,
-        // MeasurementAggregator::merge
-        // ));
-
-        // Map<String, ResultRow> sortedResults = accumulatedMeasures.entrySet().stream()
-        // .collect(Collectors.toMap(
-        // entry -> entry.getKey().toString(),
-        // entry -> entry.getValue().toResultRow(),
-        // (existing, replacement) -> existing,
-        // TreeMap::new
-        // ));
-
-        System.out.println(sortedResults);
     }
 
 }
