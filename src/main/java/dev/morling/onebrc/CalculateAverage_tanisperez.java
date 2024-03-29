@@ -62,9 +62,19 @@ public class CalculateAverage_tanisperez {
         }
     }
 
+    /**
+     * This method divides the file in chunks depending on the number of cores.
+     * <p>
+     * The lines in the file don't have a fixed length, so for every chunk, we have to increase the limit until the next
+     * line '\n'. This algorithm will produce chunks with very similar size, but a difference in a few bytes.
+     *
+     * @param file The file to be processed.
+     * @param numberOfCores The number of cores used to divide the file in chunks.
+     * @return A List of MappedByteBuffer representing the file chunks.
+     * @throws IOException on file error.
+     */
     private static List<MappedByteBuffer> splitFileInChunks(RandomAccessFile file, int numberOfCores) throws IOException {
         FileChannel fileChannel = file.getChannel();
-
         long fileSize = fileChannel.size();
         long chunkSize = fileSize / numberOfCores;
 
@@ -98,6 +108,7 @@ public class CalculateAverage_tanisperez {
             throws InterruptedException {
         Thread[] workers = new Thread[numberOfCores];
         Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
+
         for (int i = 0; i < numberOfCores; i++) {
             Map<Station, MeasurementAggregator> workerResults = new HashMap<>(MAX_STATIONS);
             results.put(Integer.valueOf(i), workerResults);
@@ -272,7 +283,7 @@ public class CalculateAverage_tanisperez {
         private double round(double value) {
             return Math.round(value * 10.0) / 10.0;
         }
-    };
+    }
 
     private static class MeasurementAggregator {
         private long min;
@@ -318,18 +329,22 @@ public class CalculateAverage_tanisperez {
 
         @Override
         public void run() {
+            // buffer to store every line
             byte[] buffer = new byte[255];
+
             while (mappedByteBuffer.position() < mappedByteBuffer.limit()) {
                 int bufferLength = 0;
 
+                // read a line
                 byte byteRead = mappedByteBuffer.get();
                 while (byteRead != '\n') {
                     buffer[bufferLength++] = byteRead;
                     byteRead = mappedByteBuffer.get();
                 }
 
+                // Convert the line buffer to a Measurement object
                 final Measurement measurement = Measurement.from(buffer, bufferLength);
-
+                // Merge the measurement object in the results map
                 results.merge(measurement.station, new MeasurementAggregator(measurement.value), MeasurementAggregator::merge);
             }
         }
