@@ -45,16 +45,14 @@ public class CalculateAverage_tanisperez {
      * Station class to be used as key in the Maps. It stores the name of the station
      * using an array of bytes, instead of converting the bytes to a String.
      * <p>
-     * In the constructor, the hashCode is cached, because the hashCode method will be called multiple
-     * times by the HashMap operations.
+     * This class implements a lazy cached hashCode which is used in the equals Method.
      */
     private static final class Station {
         final byte[] buffer;
-        final int hashCode;
+        int hashCode = 0;
 
         private Station(byte[] buffer) {
             this.buffer = buffer;
-            this.hashCode = Arrays.hashCode(this.buffer);
         }
 
         @Override
@@ -64,11 +62,14 @@ public class CalculateAverage_tanisperez {
             if (o == null || getClass() != o.getClass())
                 return false;
             Station station = (Station) o;
-            return Arrays.equals(buffer, station.buffer);
+            return this.hashCode() == station.hashCode();
         }
 
         @Override
         public int hashCode() {
+            if (this.hashCode == 0) {
+                this.hashCode = Arrays.hashCode(this.buffer);
+            }
             return this.hashCode;
         }
 
