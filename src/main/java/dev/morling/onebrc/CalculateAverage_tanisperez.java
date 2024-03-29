@@ -39,6 +39,13 @@ import java.util.*;
 public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements-1br.txt";
 
+    /**
+     * Station class to be used as key in the Maps. It stores the name of the station
+     * using an array of bytes, instead of converting the bytes to a String.
+     * <p>
+     * In the constructor, the hashCode is cached, because the hashCode method will be called multiple
+     * times by the HashMap operations.
+     */
     private static final class Station {
         final byte[] buffer;
         final int hashCode;
@@ -69,12 +76,30 @@ public class CalculateAverage_tanisperez {
         }
     }
 
-    private static record Measurement(Station station, int value) {
+    /**
+     * Measurement class to represent each line of the file.
+     * <p>
+     * The value of the measurement will be a non-null double between -99.9 (inclusive) and 99.9 (inclusive),
+     * always with one fractional digit.
+     * <p>
+     * To improve the performance of the operations, the station measures will be processed as int values multiplied by 10.
+     * For example:
+     * <ul>
+     *     <li>14.5: 145</li>
+     *     <li>-0.3: -3</li>
+     *     <li>-27.8: -278</li>
+     * </ul>
+     *
+     * @param station The station name.
+     * @param value The measurement of the station as int.
+     */
+    private record Measurement(Station station, int value) {
+        // static array with the immediate results of 10EX powers.
         private static final int[] POW_10X = new int[] {
-            1,
-            10,
-            100,
-            1000
+            1,   // 10E0
+            10,  // 10E1
+            100, // 10E2
+            1000 // 10E3
         };
 
         public static Measurement from(final byte[] line, final int length) {
