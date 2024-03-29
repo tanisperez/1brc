@@ -39,6 +39,8 @@ import java.util.*;
 public class CalculateAverage_tanisperez {
     private static final String FILE = "./measurements-1br.txt";
 
+    private static final int MAX_STATIONS = 10_000;
+
     /**
      * Station class to be used as key in the Maps. It stores the name of the station
      * using an array of bytes, instead of converting the bytes to a String.
@@ -284,7 +286,7 @@ public class CalculateAverage_tanisperez {
         Thread[] workers = new Thread[numberOfCores];
         Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
         for (int i = 0; i < numberOfCores; i++) {
-            Map<Station, MeasurementAggregator> workerResults = new HashMap<>();
+            Map<Station, MeasurementAggregator> workerResults = new HashMap<>(MAX_STATIONS);
             results.put(Integer.valueOf(i), workerResults);
 
             workers[i] = new Thread(new ChunkWorker(chunks.get(i), workerResults));
@@ -295,7 +297,7 @@ public class CalculateAverage_tanisperez {
             workers[i].join();
         }
 
-        Map<Station, MeasurementAggregator> accumulatedMeassures = new HashMap<>();
+        Map<Station, MeasurementAggregator> accumulatedMeassures = new HashMap<>(MAX_STATIONS);
         for (Map<Station, MeasurementAggregator> meassures : results.values()) {
             for (java.util.Map.Entry<Station, MeasurementAggregator> entry : meassures.entrySet()) {
                 accumulatedMeassures.merge(entry.getKey(), entry.getValue(), MeasurementAggregator::merge);
