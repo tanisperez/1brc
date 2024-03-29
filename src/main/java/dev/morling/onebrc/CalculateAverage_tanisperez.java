@@ -148,8 +148,8 @@ public class CalculateAverage_tanisperez {
      * This class implements a lazy cached hashCode which is used in the equals Method.
      */
     private static final class Station {
-        final byte[] buffer;
-        int hashCode = 0;
+        private final byte[] buffer;
+        private int hashCode = 0;
 
         private Station(byte[] buffer) {
             this.buffer = buffer;
