@@ -37,7 +37,7 @@ import java.util.*;
  * 10. Inlining POW_10X with GraalVM 21.0.2 -> 0:40.858
  */
 public class CalculateAverage_tanisperez {
-    private static final String FILE = "./measurements-1br.txt";
+    private static final String FILE = "./measurements.txt";
 
     private static final int MAX_STATIONS = 10_000;
 
