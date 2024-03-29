@@ -102,27 +102,62 @@ public class CalculateAverage_tanisperez {
             1000 // 10E3
         };
 
+        /**
+         * This method will be called from the ChunkWorker every line is processed.
+         * <p>
+         * Instead of creating a new array of bytes and copying every byte, the whole byte buffer is passed
+         * with the calculated line length.
+         *
+         * @param line Array of bytes representing a line in the file. It could be up to 255 bytes.
+         * @param length The calculated line length, it should always be less than 255 bytes.
+         * @return The Measurement class representing a station name and the measured temperature.
+         */
         public static Measurement from(final byte[] line, final int length) {
+            // find the position of the character ; in the array of bytes
             int separatorPosition = 0;
             while (line[separatorPosition] != ';') {
                 separatorPosition++;
             }
+            // create an array of bytes with the length of the station name
             byte[] stationBuffer = new byte[separatorPosition];
             System.arraycopy(line, 0, stationBuffer, 0, separatorPosition);
+            // Create the Station object by copying the bytes from the line to the stationBuffer
             Station station = new Station(stationBuffer);
 
+            // create an array of bytes with the size of the measured temperature
+            // it can be 2, 3 or 4 bytes to store the number multiplied by 10 and the negative sign.
             byte[] value = new byte[length - separatorPosition - 2];
             for (int index = 0, i = separatorPosition + 1; i < length; i++) {
                 final byte character = line[i];
-                if (character != '.') {
+                if (character != '.') { // We skip the . character to "multiply by 10"
                     value[index++] = character;
                 }
             }
 
+            // Instead of converting this array of bytes to String and the call the Integer.parseInt method
             int intValue = fastAsciiBytesToInt(value);
             return new Measurement(station, intValue);
         }
 
+        /**
+         * Function to convert an array of ascii bytes, with an optional negative sign, to an int number.
+         * <p>
+         * Algorithm explanation:
+         * - Input: the number 210 will be passed as [50, 49, 48]
+         * - We will subtract 48 from every byte, because 48 is where the character '0' starts in the ASCII table.
+         * - By doing this, the number 210 will be converted from [50, 49, 48] to [2, 1, 0].
+         * - Then, using the index of the array, we will multiply every number with a power of 10.
+         * - The digit 2 will be multiplied by 100, the digit 1 will be multiplied by 10 and the digit 0 will be multiplied by 1.
+         * - The result will be: (2*100) + (1*10) + (0*1) = 210.
+         * <p>
+         * If the buffer starts with the character '-', at the end of the function, the result will be negated.
+         * <p>
+         * TODO: I think this algorithm could be improved by avoiding integer multiplication using some kind of bit shift
+         * operations.
+         *
+         * @param buffer Array of bytes representing the number.
+         * @return The int representation of the array of bytes.
+         */
         public static int fastAsciiBytesToInt(byte[] buffer) {
             boolean isNegative = buffer[0] == '-';
             int startPosition = isNegative ? 1 : 0;
@@ -136,7 +171,7 @@ public class CalculateAverage_tanisperez {
         }
     }
 
-    private static record ResultRow(double min, double mean, double max) {
+    private record ResultRow(double min, double mean, double max) {
 
         public String toString() {
             return round(min) + "/" + round(mean) + "/" + round(max);
