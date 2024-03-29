@@ -24,7 +24,7 @@ import java.util.*;
 
 /**
  * Tests on my MacBook Pro 2020 with i5 and 16 GB of RAM.
- *
+ * <p>
  * 1. baseline with zulu 21 -> 3:53
  * 2. my implementation with zulu 21 -> 2:02
  * 3. baseline with GraalVM 21.0.2 -> 3:33
@@ -41,6 +41,14 @@ public class CalculateAverage_tanisperez {
 
     private static final int MAX_STATIONS = 10_000;
 
+    /**
+     * These are the timings debugging on my Mac:
+     * <p>
+     * Split file in chunks: 23 ms
+     * Process chunks in parallel: 56.959 ms
+     * Group results: 14 ms
+     * Sort results: 8 ms
+     */
     public static void main(String[] args) throws Exception {
         int numberOfCores = Runtime.getRuntime().availableProcessors();
 
@@ -48,7 +56,7 @@ public class CalculateAverage_tanisperez {
             List<MappedByteBuffer> chunks = splitFileInChunks(file, numberOfCores);
             Map<Integer, Map<Station, MeasurementAggregator>> resultsPerCore = processChunksInParallel(numberOfCores, chunks);
             Map<Station, MeasurementAggregator> accumulatedMeasures = groupResults(resultsPerCore);
-            Map<String, ResultRow> results = getSortedResults(accumulatedMeasures);
+            Map<String, ResultRow> results = sortResults(accumulatedMeasures);
 
             System.out.println(results);
         }
@@ -86,7 +94,8 @@ public class CalculateAverage_tanisperez {
         return chunks;
     }
 
-    private static Map<Integer, Map<Station, MeasurementAggregator>> processChunksInParallel(int numberOfCores, List<MappedByteBuffer> chunks) throws InterruptedException {
+    private static Map<Integer, Map<Station, MeasurementAggregator>> processChunksInParallel(int numberOfCores, List<MappedByteBuffer> chunks)
+            throws InterruptedException {
         Thread[] workers = new Thread[numberOfCores];
         Map<Integer, Map<Station, MeasurementAggregator>> results = new HashMap<>(numberOfCores);
         for (int i = 0; i < numberOfCores; i++) {
@@ -113,7 +122,7 @@ public class CalculateAverage_tanisperez {
         return accumulatedMeassures;
     }
 
-    private static Map<String, ResultRow> getSortedResults(Map<Station, MeasurementAggregator> accumulatedMeassures) {
+    private static Map<String, ResultRow> sortResults(Map<Station, MeasurementAggregator> accumulatedMeassures) {
         Map<String, ResultRow> sortedResults = new TreeMap<>();
         for (Map.Entry<Station, MeasurementAggregator> entry : accumulatedMeassures.entrySet()) {
             sortedResults.put(entry.getKey().toString(), entry.getValue().toResultRow());
